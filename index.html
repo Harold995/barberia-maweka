@@ -294,7 +294,7 @@ const LS_URL = "maweka_api_url_v1";
 //  Si la dejas vacía ("") la app te la pedirá la primera vez
 //  y la recordará automáticamente en el navegador.
 // ══════════════════════════════════════════════════════════════
-const HARDCODED_URL = "https://script.google.com/macros/s/AKfycbzUlscTh2ymVd_-ga8WhN1iY9pEr1u3e1Lz61oLpwbjK8qR9g2e0N3NEbBmiAzo8q9kPA/exec";   
+const HARDCODED_URL = "";   // Ejemplo: "https://script.google.com/macros/s/XXXXX/exec"
 
 // ══════════════════════════════════════════════
 //  ESTADO GLOBAL
@@ -376,31 +376,43 @@ function dkey(y,m,d){return y+"-"+String(m+1).padStart(2,"0")+"-"+String(d).padS
 function toMin(t){const[h,m]=t.split(":").map(Number);return h*60+m;}
 function frMin(n){return String(Math.floor(n/60)).padStart(2,"0")+":"+String(n%60).padStart(2,"0");}
 
-// Normaliza cualquier formato de fecha a "YYYY-MM-DD"
-// Google Sheets puede devolver "15/01/2025" o "2025/01/15" en lugar de ISO
+// Normaliza CUALQUIER formato de fecha a "YYYY-MM-DD"
+// Handles: ISO, DD/MM/YYYY, YYYY/MM/DD, "Thu Feb 26 2025 ...", Date objects
 function normDate(ds){
   if(!ds) return "";
   const s=String(ds).trim();
-  if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);          // ya ISO
+  // Ya ISO YYYY-MM-DD
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+  // DD/MM/YYYY
   const dmy=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if(dmy) return dmy[3]+"-"+dmy[2].padStart(2,"0")+"-"+dmy[1].padStart(2,"0");
+  // YYYY/MM/DD
   const ymd=s.match(/^(\d{4})\/(\d{2})\/(\d{2})/);
   if(ymd) return ymd[1]+"-"+ymd[2]+"-"+ymd[3];
+  // "Thu Feb 26 2025 ..." o cualquier string parseable
+  const d=new Date(s);
+  if(!isNaN(d.getTime()) && d.getFullYear()>1900){
+    return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+  }
   return s.slice(0,10);
 }
 
 function fmtDate(ds,opts){
   const iso=normDate(ds);
-  if(!iso||iso.length<10) return ds||"";
-  const d=new Date(iso+"T12:00:00");           // T12:00 evita desfase de zona horaria
-  if(isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("es-ES",opts||{weekday:"long",day:"numeric",month:"long"});
+  if(!iso||iso.length<10) return String(ds||"");
+  // Construir con partes numéricas para evitar cualquier desfase de zona horaria
+  const [y,mo,d]=iso.split("-").map(Number);
+  const dt=new Date(y, mo-1, d, 12, 0, 0);
+  if(isNaN(dt.getTime())) return iso;
+  return dt.toLocaleDateString("es-ES",opts||{weekday:"long",day:"numeric",month:"long"});
 }
 
 function isPast(dateStr,timeStr){
   const iso=normDate(dateStr);
-  if(!iso) return false;
-  return new Date(iso+"T"+(timeStr||"00:00")+":00")<new Date();
+  if(!iso||iso.length<10) return false;
+  const [y,mo,d]=iso.split("-").map(Number);
+  const [h,mi]=(timeStr||"00:00").split(":").map(Number);
+  return new Date(y,mo-1,d,h||0,mi||0,0)<new Date();
 }
 
 function statusBadge(st){
@@ -428,8 +440,10 @@ function getSlots(dateStr){
   for(let t=st;t+len<=en;t+=len){
     if(dc.breaks.some(b=>t>=toMin(b.start)&&t<toMin(b.end))) continue;
     const ts=frMin(t);
+    // Normalizar la hora también (eliminar cero inicial si lo hubiera)
+    const normT=t=>String(t).trim().replace(/^(\d):/, "0$1:");
     const books=DB.appointments.filter(a=>
-      normDate(a.date)===iso && a.time===ts &&
+      normDate(a.date)===iso && normT(a.time)===normT(ts) &&
       a.status!=="cancelada" && a.status!=="eliminada"
     );
     out.push({time:ts,books,full:books.length>=DB.barbers.length});
@@ -679,6 +693,17 @@ function stepForm(card){
     if(!WZ.name) return;
     showLoading();
     try{
+      // Recargar datos frescos antes de confirmar para evitar doble reserva
+      await loadAll();
+      const freshSlots=getSlots(WZ.date);
+      const freshSlot=freshSlots.find(s=>s.time===WZ.slot);
+      const barberBooked=freshSlot&&freshSlot.books.some(b=>b.barber===barberName);
+      if(!freshSlot||freshSlot.full||barberBooked){
+        hideLoading();
+        toast("⚠️ Este hueco acaba de ser reservado. Por favor elige otro.",true);
+        WZ.slot=null; WZ.step=2; render();
+        return;
+      }
       await api("addAppointment",{
         date:WZ.date,time:WZ.slot,barber:barberName,
         svcId:WZ.svc,name:WZ.name,phone:WZ.phone,notes:WZ.notes
