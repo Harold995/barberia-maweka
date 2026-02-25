@@ -800,7 +800,7 @@ function renderLogin(app){
   loginBtn.onclick=doLogin;
   passI.addEventListener("keydown",e=>{if(e.key==="Enter")doLogin();});
   card.appendChild(passI);card.appendChild(errEl);card.appendChild(loginBtn);
-  card.appendChild(mk("p","",`<span style="color:#333;font-size:11px">Contraseña por defecto: <b style="color:#555">maweka2024</b></span>`));
+  card.appendChild(mk("p","",`<span style="color:#333;font-size:11px">Contraseña por defecto: <b style="color:#555">1234</b></span>`));
   wrap.appendChild(card);app.appendChild(wrap);
   setTimeout(()=>passI.focus(),60);
 }
