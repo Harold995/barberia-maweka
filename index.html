@@ -13,7 +13,15 @@
   --border:#252015;--text:#e8d5a3;--muted:#666;
   --red:#e74c3c;--green:#27ae60;--orange:#e67e22;--blue:#3498db
 }
-body{background:var(--bg);font-family:'Lato',sans-serif;color:var(--text);min-height:100vh}
+body.light{
+  --bg:#f5f2ec;--bg2:#ffffff;--bg3:#ede8df;--bg4:#e0d9cc;
+  --border:#d4cbbf;--text:#1a1208;--muted:#7a6e60
+}
+body{background:var(--bg);font-family:'Lato',sans-serif;color:var(--text);min-height:100vh;transition:background .3s,color .3s}
+body.light{
+  --bg:#f5f2ec;--bg2:#ffffff;--bg3:#ede8df;--bg4:#e0d9cc;
+  --border:#d4cbbf;--text:#1a1208;--muted:#7a6e60
+}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pop{from{opacity:0;transform:scale(.93)}to{opacity:1;transform:scale(1)}}
@@ -305,6 +313,24 @@ input[type=time]{width:auto;padding:4px 7px;font-size:11px}
   .card,.tcontent{padding:14px}.tab{font-size:10px;padding:7px 9px}
   .earn-grid{grid-template-columns:1fr}.g3{grid-template-columns:1fr 1fr}
 }
+
+/* ── FILTROS VISUALES ── */
+.filter-bar{display:flex;gap:0;background:var(--bg3);border:1px solid var(--border);
+  border-radius:10px;overflow:hidden;margin-bottom:14px}
+.filt{flex:1;background:transparent;border:none;color:var(--muted);padding:10px 4px;
+  cursor:pointer;font-size:11px;font-weight:600;letter-spacing:.3px;text-align:center;
+  font-family:'Lato',sans-serif;transition:all .2s;position:relative}
+.filt:not(:last-child)::after{content:'';position:absolute;right:0;top:18%;height:64%;
+  width:1px;background:var(--border)}
+.filt:hover{color:var(--gold)}
+.filt.on{background:var(--gold);color:#0d0b08;font-weight:700}
+.filt .filt-n{display:block;font-size:16px;font-weight:700;margin-bottom:1px;font-family:'Playfair Display',serif}
+.filt .filt-l{display:block;font-size:9px;letter-spacing:.5px;text-transform:uppercase;opacity:.8}
+/* ── THEME TOGGLE ── */
+.theme-tog{background:var(--bg3);border:1px solid var(--border);color:var(--muted);
+  width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:14px;
+  display:flex;align-items:center;justify-content:center;transition:all .2s;padding:0}
+.theme-tog:hover{border-color:var(--gold);color:var(--gold)}
 </style>
 </head>
 <body>
@@ -321,6 +347,7 @@ input[type=time]{width:auto;padding:4px 7px;font-size:11px}
       </div>
     </div>
     <div class="hdr-right" id="hdr-right">
+      <button class="theme-tog" id="theme-btn" title="Modo claro/oscuro" onclick="toggleTheme()">🌙</button>
       <button class="refresh-btn" id="rbtn" title="Actualizar datos" onclick="refresh()">↻</button>
       <button class="nbtn on" id="v-client" onclick="setView('client')">Reservar</button>
       <button class="nbtn"    id="v-admin"  onclick="setView('admin')">Barbero</button>
@@ -347,9 +374,30 @@ let DB = {appointments:[],services:[],barbers:[],
 let VIEW="client", ADMIN_OK=false, ATAB="citas", CF="proximas";
 let SCHED=null, EARN_FROM="", EARN_TO="";
 let AUTO_INTERVAL=null;
+let DARK_MODE = localStorage.getItem("maweka_theme")!=="light";
 let WZ = mkWZ();
+
+function toggleTheme(){
+  DARK_MODE=!DARK_MODE;
+  applyTheme();
+  localStorage.setItem("maweka_theme", DARK_MODE?"dark":"light");
+}
+function applyTheme(){
+  document.body.classList.toggle("light",!DARK_MODE);
+  const btn=document.getElementById("theme-btn");
+  if(btn) btn.textContent=DARK_MODE?"🌙":"☀️";
+}
 function mkWZ(){ const n=new Date(); return{step:1,date:null,slot:null,svc:null,barber:null,
   name:"",phone:"",email:"",notes:"",cy:n.getFullYear(),cm:n.getMonth()}; }
+
+function fmtMoney(amount, currency){
+  const cur = currency || DB.config.currency || "€";
+  const n = Number(amount);
+  // Mostrar sin decimales si es número entero, con 2 si tiene centavos
+  const formatted = Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/,"");
+  // Signo delante para €, $, £ etc. — siempre prefijo
+  return cur + formatted;
+}
 
 // ── API (optimizada: sin showLoading para llamadas silenciosas) ──
 async function api(action,payload={}){
@@ -369,13 +417,22 @@ async function loadAll(){
 }
 
 async function act(action,payload,msg){
+  // Optimistic UI: actualizar localmente al instante para operaciones de estado
+  if(action==="updateStatus"&&payload.id&&payload.status){
+    const a=DB.appointments.find(x=>x.id===payload.id);
+    if(a){ a.status=payload.status; render(); } // render inmediato
+  }
+  if(action==="deleteAppointment"&&payload.id){
+    const a=DB.appointments.find(x=>x.id===payload.id);
+    if(a){ a.status="eliminada"; render(); }
+  }
   showLoad();
   try{
     await api(action,payload);
-    await loadAll();
+    await loadAll(); // confirmar con datos reales
     render();
     if(msg) toast(msg,"ok");
-  }catch(e){ toast(e.message,"err"); }
+  }catch(e){ await loadAll(); render(); toast(e.message,"err"); }
   finally{ hideLoad(); }
 }
 
@@ -759,65 +816,42 @@ function renderLogin(app){
 function tabCitas(cont){
   cont.innerHTML="";
   const today=todayISO();
-  cont.appendChild(mk("h2","sec-t","Gestión de Citas"));
 
-  // Toggle cita manual
-  const toggleManual=mk("button","btn-sm","+ Cita manual");
-  const manualBox=mk("div","manual-box");
-  toggleManual.onclick=()=>manualBox.classList.toggle("open");
-
-  // Formulario manual
-  const mTitle=mk("p","",`<span style="color:var(--gold);font-size:13px;font-weight:700;margin-bottom:9px;display:block">Nueva cita manual</span>`);
-  manualBox.appendChild(mTitle);
-  const mg2=mk("div","g2"); mg2.style.marginBottom="7px";
-  const mg3=mk("div","g3"); mg3.style.marginBottom="7px";
-  function inp(ph,type="text"){ const i=document.createElement("input"); i.type=type; i.placeholder=ph; return i; }
-  const mName=inp("Nombre *"); const mPhone=inp("Teléfono *","tel");
-  const mEmail=inp("Email","email"); const mDate=inp("Fecha","date"); mDate.min=today;
-  const mTime=inp("Hora","time");
-  const mBarber=document.createElement("select");
-  mBarber.appendChild(Object.assign(document.createElement("option"),{value:"",textContent:"Barbero..."}));
-  DB.barbers.forEach(b=>{ const o=document.createElement("option"); o.value=b.name; o.textContent=b.name; mBarber.appendChild(o); });
-  const mSvc=document.createElement("select");
-  mSvc.appendChild(Object.assign(document.createElement("option"),{value:"",textContent:"Servicio..."}));
-  DB.services.forEach(s=>{ const o=document.createElement("option"); o.value=s.id; o.textContent=`${s.name} (${s.duration}min)`; mSvc.appendChild(o); });
-  const mNotes=document.createElement("textarea"); mNotes.placeholder="Notas"; mNotes.style.height="45px";
-  [mName,mPhone].forEach(e=>mg2.appendChild(e));
-  [mDate,mTime,mBarber].forEach(e=>mg3.appendChild(e));
-  manualBox.appendChild(mg2); manualBox.appendChild(mg3);
-  manualBox.appendChild(mEmail); manualBox.appendChild(mSvc); manualBox.appendChild(mNotes);
-  const mSave=mk("button","btn-sm","Crear cita"); mSave.style.marginTop="7px";
-  mSave.onclick=async()=>{
-    if(!mName.value.trim()||!mPhone.value.trim()||!mDate.value||!mTime.value||!mBarber.value||!mSvc.value){
-      toast("Completa todos los campos obligatorios","err"); return;
-    }
-    const sv=DB.services.find(s=>s.id===mSvc.value);
-    await act("addManualAppointment",{
-      date:mDate.value,time:mTime.value,barber:mBarber.value,
-      svcId:mSvc.value,svcName:sv?.name,duration:sv?.duration,
-      name:mName.value.trim(),phone:mPhone.value.trim(),
-      email:mEmail.value.trim(),notes:mNotes.value.trim()
-    },"Cita creada ✓");
+  // Contar citas por filtro para los badges
+  const allApts=DB.appointments.filter(a=>a.status!=="eliminada");
+  const counts={
+    proximas: allApts.filter(a=>!isPast(a.date,a.time)).length,
+    hoy:      allApts.filter(a=>normDate(a.date)===today).length,
+    pasadas:  allApts.filter(a=>isPast(a.date,a.time)).length,
+    todas:    allApts.length
   };
-  manualBox.appendChild(mSave);
 
-  // Filtros
-  const topRow=mk("div","flex"); topRow.style.margin="12px 0 10px";
-  ["proximas","hoy","pasadas","todas"].forEach(f=>{
-    const labels={proximas:"Próximas",hoy:"Hoy",pasadas:"Pasadas",todas:"Todas"};
-    const b=mk("button","fbtn"+(CF===f?" on":""),labels[f]);
-    b.onclick=()=>{ CF=f; tabCitas(cont); }; topRow.appendChild(b);
-  });
-  const autoBtn=mk("button","btn-sm ml","🔄 Auto-confirmar");
+  // Header con título y acciones
+  const hdr=mk("div","flex"); hdr.style.marginBottom="14px";
+  hdr.appendChild(mk("h2","sec-t","Citas"));
+  const autoBtn=mk("button","btn-ghost ml","🔄");
+  autoBtn.title="Auto-confirmar pasadas";
   autoBtn.onclick=()=>act("autoConfirmPast",{},"Confirmadas ✓");
-  topRow.appendChild(autoBtn);
-
-  // Export CSV
-  const expBtn=mk("button","btn-ghost","📥 CSV"); expBtn.style.marginBottom="10px";
+  const expBtn=mk("button","btn-ghost","📥");
+  expBtn.title="Exportar CSV";
   expBtn.onclick=()=>exportCSV();
+  hdr.appendChild(autoBtn); hdr.appendChild(expBtn);
+  cont.appendChild(hdr);
 
-  cont.appendChild(toggleManual); cont.appendChild(manualBox);
-  cont.appendChild(mk("hr","sep","")); cont.appendChild(topRow); cont.appendChild(expBtn);
+  // Filtros visuales con contadores
+  const filterBar=mk("div","filter-bar");
+  [
+    {key:"proximas", icon:"⏳", label:"Próximas"},
+    {key:"hoy",      icon:"📅", label:"Hoy"},
+    {key:"pasadas",  icon:"✓",  label:"Pasadas"},
+    {key:"todas",    icon:"☰",  label:"Todas"}
+  ].forEach(({key,icon,label})=>{
+    const btn=mk("button","filt"+(CF===key?" on":""));
+    btn.innerHTML=`<span class="filt-n">${icon} ${counts[key]}</span><span class="filt-l">${label}</span>`;
+    btn.onclick=()=>{ CF=key; tabCitas(cont); };
+    filterBar.appendChild(btn);
+  });
+  cont.appendChild(filterBar);
 
   // Lista
   let list=DB.appointments.filter(a=>a.status!=="eliminada");
@@ -941,7 +975,7 @@ async function loadEarnings(cont){
 function renderEarnings(el,data){
   el.innerHTML=""; const cur=DB.config.currency||"€";
   const hero=mk("div","earn-hero");
-  hero.innerHTML=`<div class="earn-amt">${data.total.toFixed(2)}${cur}</div><div class="earn-lbl">Total confirmado</div>`;
+  hero.innerHTML=`<div class="earn-amt">${fmtMoney(data.total,cur)}</div><div class="earn-lbl">Total confirmado</div>`;
   el.appendChild(hero);
   const grid=mk("div","earn-grid");
   function makeBoxSvc(title,obj){
@@ -953,7 +987,7 @@ function renderEarnings(el,data){
       const sv=DB.services.find(s=>s.id===k);
       const r=mk("div","earn-row");
       r.appendChild(mk("span","earn-n",sv?.name||k));
-      r.appendChild(mk("span","earn-v",Number(v).toFixed(2)+cur));
+      r.appendChild(mk("span","earn-v",fmtMoney(v,cur)));
       box.appendChild(r);
     });
     return box;
@@ -966,7 +1000,7 @@ function renderEarnings(el,data){
       const sv=DB.services.find(s=>s.id===k);
       const r=mk("div","earn-row");
       r.appendChild(mk("span","earn-n",sv?.name||k));
-      r.appendChild(mk("span","earn-v",v.toFixed(2)+cur));
+      r.appendChild(mk("span","earn-v",fmtMoney(v,cur)));
       box.appendChild(r);
     });
     return box;
@@ -990,7 +1024,7 @@ function renderEarnings(el,data){
           <div class="apt-name">${a.name}</div>
           <div class="apt-meta">${a.svc} · ${a.barber}</div>
         </div>
-        <div style="color:var(--gold);font-weight:700;font-size:15px;align-self:center;margin-left:auto">${a.price.toFixed(2)}${a.currency}</div>`;
+        <div style="color:var(--gold);font-weight:700;font-size:15px;align-self:center;margin-left:auto">${fmtMoney(a.price,a.currency)}</div>`;
       col.appendChild(r);
     });
     el.appendChild(col);
@@ -1182,6 +1216,16 @@ function tabAjustes(cont){
   cont.innerHTML="";
   cont.appendChild(mk("h2","sec-t","Ajustes"));
 
+  // Tema visual
+  const s0=mk("div","s-sec"); s0.appendChild(mk("span","s-sec-t","Apariencia"));
+  const themeRow=mk("div","flex");
+  const darkBtn=mk("button","btn-sm"+(DARK_MODE?"":" btn-ghost")," 🌙 Oscuro");
+  const lightBtn=mk("button","btn-sm"+(DARK_MODE?" btn-ghost":"")," ☀️ Claro");
+  darkBtn.onclick=()=>{ if(!DARK_MODE){toggleTheme(); tabAjustes(cont);} };
+  lightBtn.onclick=()=>{ if(DARK_MODE){toggleTheme(); tabAjustes(cont);} };
+  themeRow.appendChild(darkBtn); themeRow.appendChild(lightBtn);
+  s0.appendChild(themeRow); cont.appendChild(s0);
+
   // Moneda
   const s1=mk("div","s-sec"); s1.appendChild(mk("span","s-sec-t","Moneda"));
   const cRow=mk("div","flex");
@@ -1205,6 +1249,7 @@ function tabAjustes(cont){
 
 // ── INIT ──
 (async()=>{
+  applyTheme();
   showLoad();
   try{ await loadAll(); }
   catch(e){ toast("Error al conectar: "+e.message,"err"); }
