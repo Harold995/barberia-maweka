@@ -10,7 +10,7 @@ const SERVICES = [
   { id: "afeitado", name: "Afeitado Clásico", duration: 45, price: "15€" },
   { id: "tinte", name: "Tinte / Color", duration: 60, price: "25€" },
 ];
-const ADMIN_PASS = "maweka2024";
+const ADMIN_PASS = "1234";
 
 const DEFAULT_SETTINGS = {
   schedule: {
