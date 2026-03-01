@@ -445,13 +445,8 @@ async function refresh(){
   finally{ setTimeout(()=>btn&&btn.classList.remove("spin"),500); }
 }
 
-// Auto-refresh cada 20s para sincronización en tiempo real
-function startAutoRefresh(){
-  clearInterval(AUTO_INTERVAL);
-  AUTO_INTERVAL=setInterval(async()=>{
-    try{ await loadAll(); render(); } catch(e){}
-  },20000);
-}
+// Auto-refresh desactivado
+function startAutoRefresh(){ /* desactivado */ }
 function stopAutoRefresh(){ clearInterval(AUTO_INTERVAL); }
 
 // ── UI ──
